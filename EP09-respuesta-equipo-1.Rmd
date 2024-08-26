@@ -1,0 +1,166 @@
+---
+title: "EP10"
+author: "Anonymus"
+date: "2024-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Se cargaron las librerías necesarias para desarrrollar la actividad de RLM
+library(tidyverse)
+library(caret)
+library(car)
+```
+
+
+
+### Definir la semilla a utilizar, que corresponde a los últimos cuatro dígitos del RUN (sin considerar el dígito verificador) del integrante de menor edad del equipo.
+
+```{r}
+# Se definio la semilla según las instrucciones
+semilla <- 5844
+set.seed(semilla)
+
+# Cargar los datos
+data <- read.csv2("EP09 Datos.csv")
+```
+
+
+### Seleccionar una muestra aleatoria de 100 mujeres (si la semilla es un número par) o 100 hombres (si la semilla es impar), y separar 70 casos para trabajar en la construcción de modelos y 30 para su evaluación en datos no vistos.
+
+```{r}
+if (semilla %% 2 == 0) {
+  muestra <- data %>% filter(Gender == 0) %>% sample_n(100)
+} else {
+  muestra <- data %>% filter(Gender == 1) %>% sample_n(100)
+}
+
+# Separar 70 casos para construcción de modelos y 30 para evaluación
+train_index <- createDataPartition(muestra$Weight, p = 0.7, list = FALSE)
+train_data <- muestra[train_index, ]
+test_data <- muestra[-train_index, ]
+
+```
+
+
+### Seleccionar de forma aleatoria ocho posibles variables predictoras.
+
+```{r}
+set.seed(semilla)
+predictoras <- sample(colnames(train_data)[1:23], 8)
+```
+
+
+### Seleccionar, de las otras variables, una que el equipo considere que podría ser útil para predecir la variable Peso (sin considerar la estatura), justificando bien esta selección.
+
+```{r}
+# En este caso, se selecciono Waist.Girth
+variable_seleccionada <- "Waist.Girth"
+
+
+# Argumento: En el ambito de la salud es comun el uso de este parametro. "La circunferencia de la cintura es un indicador importante del riesgo de enfermedades relacionadas con la obesidad. Medir la circunferencia de la cintura ayuda a identificar posibles riesgos de salud asociados con el exceso de grasa abdominal, que puede aumentar el riesgo de enfermedades cardíacas, diabetes tipo 2 y otras condiciones de salud " (Assessing Your Weight. (2023, June 9). Centers for Disease Control and Prevention. https://www.cdc.gov/healthyweight/assessing/index.html)
+```
+
+
+### Usando el entorno R y paquetes estándares1, construir un modelo de regresión lineal simple con el predictor seleccionado en el paso anterior.
+
+```{r}
+# Se construyo un modelo de regresión lineal simple con el predictor seleccionado
+modelo_simple <- lm(Weight ~ get(variable_seleccionada), data = train_data)
+```
+
+
+
+### Usando herramientas estándares1 para la exploración de modelos del entorno R, buscar entre dos y cinco predictores de entre las variables seleccionadas al azar en el punto 3, para agregar al modelo de regresión lineal simple obtenido en el paso 5.
+```{r}
+# Se verificaron los nombres de las columnas en train_data
+print(colnames(train_data))
+
+# Aquí se creo el scope
+scope <- ~ Biacromial.diameter + Biiliac.diameter + Bitrochanteric.diameter +
+  Chest.depth + Chest.diameter + Elbows.diameter + Wrists.diameter +
+  Knees.diameter + Ankles.diameter + Shoulder.Girth + Chest.Girth +
+  Waist.Girth + Navel.Girth + Hip.Girth + Thigh.Girth + Bicep.Girth +
+  Forearm.Girth + Knee.Girth + Calf.Maximum.Girth + Ankle.Minimum.Girth +
+  Wrist.Minimum.Girth + Age # Excluyendo Gender y Height
+
+
+# Construir el modelo inicial con la variable Waist.Girth
+modelo_inicial <- lm(Weight ~ Waist.Girth, data = train_data)
+
+# Realizar la selección escalonada
+modelo_stepwise <- step(modelo_inicial, scope = scope, direction = "both")
+
+# Evaluar el modelo resultante
+summary(modelo_stepwise)
+
+```
+
+### Evaluar la bondad de ajuste (incluyendo el análisis de casos atípicos y casos influyentes) y la generalidad (condiciones para RLM) de los modelos y “arreglarlos” en caso de que presenten algún problema.
+
+```{r}
+# Evaluar el modelo de regresión lineal múltiple que es el modelo_stepwise
+modelo_multiple <- modelo_stepwise
+
+summary(modelo_multiple)
+
+# Diagnóstico de residuos
+par(mfrow = c(2, 2))
+plot(modelo_multiple)
+
+# Identificar casos atípicos y casos influyentes
+influencePlot(modelo_multiple)
+
+# Calcular residuos estudentizados
+residuos_estudentizados <- rstudent(modelo_multiple)
+plot(residuos_estudentizados, main = "Residuos Estudentizados", ylab = "Residuo Estudentizado", xlab = "Índice")
+abline(h = c(-2, 2), col = "red", lty = 2)
+
+# Diagnóstico de influencia
+infl <- influence.measures(modelo_multiple)
+summary(infl)
+
+
+# Verificar la normalidad de los residuos
+qqnorm(residuos_estudentizados)
+qqline(residuos_estudentizados)
+
+# Prueba de Shapiro-Wilk para normalidad
+shapiro.test(residuos_estudentizados)
+
+# Verificar homocedasticidad (varianza constante de los residuos)
+ncvTest(modelo_multiple) 
+
+spreadLevelPlot(modelo_multiple)
+# Verificar multicolinealidad
+vif(modelo_multiple)
+
+# Arreglar el modelo en caso de problemas
+# Ejemplo: Si hay multicolinealidad severa, se puede eliminar una de las variables con alto VIF
+
+
+# Evaluar la bondad de ajuste del modelo múltiple en el conjunto de prueba
+predicciones <- predict(modelo_multiple, newdata = test_data)
+error_cuadratico_medio <- mean((test_data$Weight - predicciones)^2)
+print(paste("Error cuadrático medio (MSE):", error_cuadratico_medio))
+
+```
+
+### Evaluar el poder predictivo del modelo con los datos no utilizados para construirlo.
+```{r}
+# Se evaluaa el poder predictivo del modelo con datos no utilizados para construirlo
+set.seed(semilla)
+validation_index <- createDataPartition(data$Weight, p = 0.3, list = FALSE)
+validation_data <- data[validation_index, ]
+
+predicciones_validacion <- predict(modelo_multiple, newdata = validation_data)
+error_cuadratico_medio_validacion <- mean((validation_data$Weight - predicciones_validacion)^2)
+print(paste("Error cuadrático medio en validación (MSE):", error_cuadratico_medio_validacion))
+
+```
+
+

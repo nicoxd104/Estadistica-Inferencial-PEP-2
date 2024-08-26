@@ -1,0 +1,226 @@
+---
+title: "EP08-respuesta-equipo-4"
+author: "Equipo 4"
+date: "2024-04-30"
+output: html_document
+---
+# Equipo 4
+
+## Pregunta 1
+Propongan una pregunta de investigación original, que involucre la comparación de una frecuencia de un evento o característica en dos grupos independientes (más abajo se dan unos ejemplos). Fijando una semilla propia, seleccionen una muestra aleatoria de hogares (100 < n < 150) y respondan la pregunta propuesta utilizando el método Monte Carlo.
+
+R: la pregunta que se ha formulado es:
+
+"Respecto a la proporción de viviendas de la región de Atacama en donde el dueño de esta es de nacionalidad chilena exclusiva, ¿Es esta similar entre hombres y mujeres que no tienen a una pareja viviendo en el hogar?"
+
+Así, las hipótesis serían:
+
+Ho: La proporción de viviendas de la región de Atacama donde el dueño es hombre chileno y no tiene a su pareja viviendo en el hogar es la misma que para dueñas mujeres con dichas condiciones (casos_fav_hombres/casos_totales == casos_fav_mujeres/casos_totales)
+
+Ha: La proporción de viviendas de la región de Atacama donde el dueño es hombre chileno y no tiene a su pareja viviendo en el hogar es distinta que para dueñas mujeres con dichas condiciones (casos_fav_hombres/casos_totales != casos_fav_mujeres/casos_totales)
+```{r}
+#Se instalan e importan las librerías necesarias
+if (!requireNamespace('ggpubr', quietly = TRUE)){
+  install.packages('ggpubr')
+}
+if (!requireNamespace('tidyverse', quietly = TRUE)){
+  install.packages('tidyverse')
+}
+if (!requireNamespace('ez', quietly = TRUE)){
+  install.packages('ez')
+}
+
+library(ggpubr)
+library(ez)
+library(tidyverse)
+
+#Se leen los datos
+datos = read.csv2("EP08 Datos CASEN 2017.csv", stringsAsFactors = TRUE)
+
+#Se setea una semilla para que los valores no cambien en cada ejecución
+set.seed(69)
+
+#Se establece un nivel de significancia para concluir si rechazar o apoyar la hipótesis nula de acuerdo al estadístico p
+alpha = 0.05
+
+#Se usan solo las columnas que se quieren analizar
+datos = datos[, c("id.vivienda", "sexo", "pareja", "region", "r1a")]
+
+#Se filtran los datos para gente perteneciente a la región, y que sean solo de nacionalidad chilena. Se usa el símbolo "�" debido a problemas con el archivo de entrada
+datos_atacama = datos %>% filter(datos$region == "Regi�n de Atacama" & datos$r1a == "Chilena (Exclusiva)")
+
+#Se filtran 125 datos del total existentes en la tabla
+datos_filtrados = sample_n(datos_atacama, 125)
+
+#Ahora se obtienen los datos para mujeres y hombres por separado
+datos_hombre = datos_filtrados %>% filter(datos_filtrados$sexo == "Hombre")
+datos_mujer = datos_filtrados %>% filter(datos_filtrados$sexo == "Mujer")
+
+#Como se estudian proporciones, se genera esta función para dicho fin, respecto a la variable pareja
+calcular_proporcion = function(datos){
+  n_total = nrow(datos)
+  n_cumplen_condiciones = sum(datos$pareja == "No tiene pareja en el hogar")
+  proporcion = n_cumplen_condiciones / n_total
+  return(proporcion)
+}
+
+#Función que obtiene las permutaciones a realizar
+obtenerPerm = function(i, datos_hombre, datos_mujer){
+  n1 = length(datos_hombre)
+  combinada = c(datos_hombre, datos_mujer)
+  n = length(combinada)
+  permutacion = sample(combinada, n, replace = FALSE)
+  nuevo1 = permutacion[1:n1]
+  nuevo2 = permutacion[n1+1:n]
+  return(list(nuevo1,nuevo2))
+}
+
+#Calcula la diferencia entre las proporciones para cada permutación
+calcular_diferencia = function(datos, FUN){
+  muestra1 = datos[[1]]
+  muestra2 = datos[[2]]
+  diferencia = FUN(muestra1) - FUN(muestra2)
+  return(diferencia)
+}
+
+#Obtiene el valor del estadístico p
+calcular_p = function(distribucion, valorObs, repeticiones){
+    numerador = sum(abs(unlist(distribucion)) > abs(valorObs)) + 1
+    denominador = repeticiones + 1
+    valor_p = numerador/denominador
+}
+
+#Se definen las repeticiones a la permutación
+repeticiones = 1999
+
+#Se comienza con el cálculo de las funciones
+#Se obtiene el valor de interés, que es la diferencia de las proporciones de la muestra original
+valorObs = calcular_diferencia(list(datos_hombre, datos_mujer), calcular_proporcion)
+
+#Se hacen 1999 permutaciones de dicha muestra
+permutaciones = lapply(1:repeticiones, obtenerPerm, datos_hombre, datos_mujer)
+
+#Se obtiene la distribución de las permutaciones
+distribucion = sapply(permutaciones, calcular_diferencia, calcular_proporcion)
+
+#Se obtiene el p-value
+valor_p = calcular_p(distribucion, valorObs, repeticiones)
+
+if(valor_p < 0.05){
+  cat("Al obtener un p-value de ", valor_p, " ,se ve que este es menor que el nivel de significancia, por lo que hay suficiente información para rechazar la hipótesis nula con un 95% de confianza, y por ende, se dice que la proporción de viviendas de la región de Atacama donde el dueño es hombre chileno y no tiene a su pareja viviendo en el hogar es distinta que para dueñas mujeres con dichas condiciones")
+}else {
+  cat("Al obtener un p-value de ", valor_p, " ,se ve que este es mayor (o igual) que el nivel de significancia, por lo que hay suficiente información para apoyar la hipótesis nula con un 95% de confianza, y por ende, se dice que la proporción de viviendas de la región de Atacama donde el dueño es hombre chileno y no tiene a su pareja viviendo en el hogar es la misma que para dueñas mujeres con dichas condiciones")
+}
+```
+
+## Pregunta 2
+
+Propongan una pregunta de investigación original, que involucre la comparación de las medias de más de dos grupos independientes (más abajo se dan unos ejemplos). Fijando una semilla distinta a la anterior, seleccionen una muestra aleatoria de hogares (200 < n < 300) y respondan la pregunta propuesta utilizando bootstrapping. Solo por ejercicio académico, aplique un análisis post-hoc con bootstrapping aunque este no fuera necesario.
+
+R: La pregunta formulada es:
+
+El ingreso per cápita (ytotcorh / numper) promedio ¿es similar según los oficios (oficio1) de: "Trabajadores de los servicios y vendedores de comercio", "Técnicos profesionales de nivel medio", "Fuerzas Armada", "Profesionales, científicos e intelectuales", "Empleados de oficina"?
+
+Esta pregunta es interesante porque proporciona información sobre la equidad económica, el bienestar laboral y las posibles áreas de intervención para mejorar las condiciones económicas de diferentes grupos ocupacionales.
+
+```{r}
+if (!requireNamespace('ggpubr', quietly = TRUE)){
+  install.packages('ggpubr')
+}
+if (!requireNamespace('tidyverse', quietly = TRUE)){
+  install.packages('tidyverse')
+}
+if (!requireNamespace('ez', quietly = TRUE)){
+  install.packages('ez')
+}
+
+library(ggpubr)
+library(ez)
+library(tidyverse)
+
+# Cargar los datos desde el archivo CSV
+datos <- read.csv2("EP08 Datos CASEN 2017.csv", stringsAsFactors = TRUE)
+```
+
+
+Generamos los datos para responder la pregunta, haciendo los filtros correspondientes 
+```{r}
+# Calcular el ingreso per cápita
+datos$ingreso_per_capita <- datos$ytotcorh / datos$numper
+
+# Filtrar la muestra para incluir solo los oficios de interés
+oficios_interes <- c("Trabajadores de los servicios y vendedores de comerci", 
+                     "Técnicos profesionales de nivel medi", 
+                     "Fuerzas Armada", 
+                     "Profesionales, científicos e intelectuales", 
+                     "Empleados de oficina")
+muestra <- datos[datos$oficio1 %in% oficios_interes, ]
+
+# Fijar una semilla para reproducibilidad
+set.seed(123)
+
+# Seleccionar una muestra aleatoria de hogares
+tamano_muestra <- sample(200:300, 1)
+muestra <- muestra[sample(nrow(muestra), tamano_muestra, replace = FALSE), ]
+
+```
+
+Se eligio realizar ANOVA para poder calcular las operaciones
+```{r}
+# Realizar el análisis de ANOVA
+modelo_anova <- aov(ingreso_per_capita ~ oficio1, data = muestra)
+
+cat("Se muestra una tabla donde estan los oficios seleccionados y los datos reciduales de la muestra aleatoria, todo esto en ralacion a Df: Grados de libertad. Sum Sq: Suma de cuadrados. Mean Sq: Media de cuadrados. F value: Es la relación entre la variabilidad entre grupos. Pr(>F): Es la probabilidad de observar un valor F tan grande como el observado si la verdadera diferencia entre las medias es cero.\n ")
+# Mostrar los resultados del ANOVA
+summary(modelo_anova)
+```
+
+
+```{r}
+# Realizar bootstraping para estimar las medias
+bootstrap_means <- tapply(muestra$ingreso_per_capita, muestra$oficio1, function(x) mean(x, na.rm = TRUE))
+
+cat("Se muestran los diferentes oficios  con sus valores estimados, los que presentan NA son porque no se toman en consideración en la pregunta propuesta.\n")
+# Imprimir los resultados del bootstraping
+print(bootstrap_means)
+```
+
+
+```{r}
+# Función para calcular la diferencia de medias y sus intervalos de confianza
+calcular_diferencia_medias <- function(x, y) {
+  diferencia <- mean(x, na.rm = TRUE) - mean(y, na.rm = TRUE)
+  boot_means_x <- replicate(1000, mean(sample(x, replace = TRUE)))
+  boot_means_y <- replicate(1000, mean(sample(y, replace = TRUE)))
+  diff_boot_means <- boot_means_x - boot_means_y
+  ci <- quantile(diff_boot_means, c(0.025, 0.975))
+  return(list(diferencia = diferencia, ci = ci))
+}
+
+# Realizar comparaciones de pares de grupos
+pares_de_grupos <- combn(unique(muestra$oficio1), 2, simplify = TRUE)
+resultados_posthoc <- list()
+
+for (i in 1:ncol(pares_de_grupos)) {
+  grupo1 <- pares_de_grupos[1, i]
+  grupo2 <- pares_de_grupos[2, i]
+  x <- muestra$ingreso_per_capita[muestra$oficio1 == grupo1]
+  y <- muestra$ingreso_per_capita[muestra$oficio1 == grupo2]
+  resultados_posthoc[[paste(grupo1, "-", grupo2)]] <- calcular_diferencia_medias(x, y)
+}
+
+cat("Aqui se impimen los resiltados del pos-hoc, realizando comparaciones para pares de grupos hasta pasar por todos los oficios deleccionados, mostrando, $diferencia: Esta es la diferencia en las medias entre los dos grupos, $ci: Estas son las estimaciones del intervalo de confianza del 97.5% para la diferencia de medias, es probable que la verdadera diferencia este entre el rango de los resultados de 2.55 y 97.5%.")
+
+# Imprimir los resultados del análisis post-hoc
+print("Resultados del análisis post-hoc:")
+for (i in 1:length(resultados_posthoc)) {
+  print(names(resultados_posthoc)[i])
+  print(resultados_posthoc[[i]])
+}
+
+```
+Se puede concluir que el análisis proporciona información valiosa sobre la equidad económica entre diferentes grupos ocupacionales. La tabla ANOVA muestra que no hay una diferencia significativa en el ingreso per cápita entre los diferentes grupos ocupacionales seleccionados (p-valor = 0.207).
+
+Los resultados del bootstraping muestran las estimaciones de las medias de ingreso per cápita para cada uno de los grupos seleccionados. Algunos grupos tienen valores NA debido a que no están representados en la muestra aleatoria.
+
+El análisis post-hoc proporciona comparaciones de pares de grupos, mostrando la diferencia en las medias de ingreso per cápita y los intervalos de confianza del 97.5%. 

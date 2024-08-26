@@ -1,0 +1,131 @@
+---
+title: "EP11-respuesta-equipo-1"
+date: "2024-08-06"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(leaps)
+library(caret)
+library(pROC)
+
+# Cargar los datos
+data <- read.csv2("EP09 Datos.csv")
+
+# Crear la variable IMC
+data$IMC <- data$Weight / (data$Height/100)^2
+
+# Crear la variable dicotómica EN (estado nutricional)
+data$EN <- ifelse(data$IMC >= 23.2, 1, 0)
+
+# Definir la semilla basada en el RUN
+semilla <- 2729
+set.seed(semilla)
+
+# Seleccionar 50 personas con sobrepeso y 50 sin sobrepeso
+muestra_sobrepeso <- data %>% filter(EN == 1) %>% sample_n(50, replace = TRUE)
+muestra_no_sobrepeso <- data %>% filter(EN == 0) %>% sample_n(50, replace = TRUE)
+
+# Unir las muestras
+muestra_ordenada <- bind_rows(muestra_sobrepeso, muestra_no_sobrepeso)
+muestra <- muestra_ordenada[sample(nrow(muestra_ordenada)),]
+```
+
+```{r}
+# Seleccionar predictores (excluyendo IMC y EN)
+variables_disponibles <- setdiff(colnames(muestra), c("Height", "IMC", "EN"))  # Excluye IMC y EN
+
+# Realizar selección de predictores con leaps
+leaps_model <- regsubsets(Weight ~ ., data = muestra[, variables_disponibles], nbest = 1)
+summary_leaps <- summary(leaps_model)
+plot(leaps_model)
+print(summary_leaps)
+
+# Obtener los nombres de todos los predictores ordenados por el criterio adjr2
+all_best_predictors <- names(coef(leaps_model, which.max(summary_leaps$adjr2)))[-1]
+
+# Seleccionar los 4 mejores predictores
+best_predictors <- all_best_predictors[1:4]
+print(best_predictors)
+
+# Definir la fórmula del modelo con los mejores predictores
+formula <- as.formula(paste("Weight ~", paste(best_predictors, collapse = " + ")))
+
+# Definir el control para bootstrapping
+control <- trainControl(method = "boot", number = 100)
+
+# Entrenar el modelo
+modelo <- train(formula, data = muestra, method = "lm", trControl = control)
+summary(modelo)
+```
+1. Modelo de Regresión Lineal para Predecir Peso:
+
+Rendimiento del Modelo:
+
+R-cuadrado ajustado: 0.8737
+Error estándar residual: 4.484
+La alta R-cuadrado ajustado indica que el modelo explica una gran proporción de la variabilidad en el peso. Sin embargo, el error estándar residual sugiere que hay una cierta cantidad de variabilidad en el peso que no está explicada por el modelo. Esto puede indicar que algunos factores adicionales podrían estar influyendo.
+
+```{r}
+# Definir control para RFE
+control_rfe <- rfeControl(functions = lmFuncs, method = "cv", number = 5, repeats = 5)
+
+# Excluir las variables no deseadas
+variables_disponibles1 <- setdiff(colnames(muestra), c("Weight", "Height", "EN", "IMC"))
+
+# Ejecutar RFE
+results_rfe <- rfe(muestra[, variables_disponibles1], muestra$IMC, sizes = c(10:20), rfeControl = control_rfe)
+summary(results_rfe$fit)
+```
+2. Modelo de Regresión Lineal para Predecir IMC:
+
+Rendimiento del Modelo:
+
+R-cuadrado ajustado: 0.8096
+Error estándar residual: 1.4
+El R-cuadrado ajustado de 0.8096 indica que el modelo explica aproximadamente el 81% de la variabilidad en el peso, lo cual es bastante bueno. El error estándar residual de 1.4 muestra que, hay algunas discrepancias entre los valores predichos y los valores reales.
+
+```{r}
+# Seleccionar predictores (excluyendo IMC)
+variables_disponibles2 <- setdiff(colnames(muestra), c("Height", "IMC", "Weight"))  # Excluye IMC
+
+# Realizar selección de predictores con leaps
+leaps_model <- regsubsets(EN ~ ., data = muestra[, variables_disponibles2], nbest = 1)
+summary_leaps <- summary(leaps_model)
+plot(leaps_model)
+print(summary_leaps)
+
+# Obtener los nombres de todos los predictores ordenados por el criterio adjr2
+all_best_predictors <- names(coef(leaps_model, which.max(summary_leaps$adjr2)))[-1]
+
+# Seleccionar los 4 mejores predictores
+best_predictors <- all_best_predictors[1:4]
+print(best_predictors)
+
+# Definir fórmula para el modelo RLogM
+formula_rlogm <- as.formula(paste("EN ~", paste(best_predictors, collapse = " + ")))
+
+# Entrenar el modelo de regresión logística usando glm
+modelo_rlogm <- glm(formula_rlogm, data = muestra, family = binomial)
+
+# Obtener las probabilidades de predicción
+probabilidades <- predict(modelo_rlogm, type = "response")
+
+# Evaluar la curva ROC
+# Asegúrate de que la variable EN sea un factor con dos niveles
+muestra$EN <- factor(muestra$EN, levels = c(0, 1))
+
+# Calcula y traza la curva ROC
+roc_curve <- roc(muestra$EN, probabilidades)
+plot(roc_curve, main = "Curva ROC")
+print(roc_curve)
+
+```
+3. Modelo de Regresión Logística para Predecir EN:
+
+Rendimiento del Modelo:
+
+Área bajo la curva (AUC) de la ROC: 0.9772
+El alto valor de AUC indica un excelente rendimiento del modelo en la clasificación de los EN (sobrepeso vs no sobrepeso). 
+Un AUC cercano a 1 sugiere que el modelo es muy bueno para distinguir entre las dos clases.

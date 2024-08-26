@@ -1,0 +1,219 @@
+---
+title: "EP07-respuesta-equipo-4"
+author: "Equipo 4"
+date: "2024-04-28"
+output: html_document
+---
+
+```{r}
+#Se usan las librerías necesarias para el ejercicio. Si no se encuentran instaladas en el equipo, se instalan automáticamente
+if (!requireNamespace('ggpubr', quietly = TRUE)){
+  install.packages('ggpubr')
+}
+if (!requireNamespace('tidyverse', quietly = TRUE)){
+  install.packages('tidyverse')
+}
+if (!requireNamespace('ez', quietly = TRUE)){
+  install.packages('ez')
+}
+
+library(ggpubr)
+library(ez)
+library(tidyverse)
+
+#Se lee el archivo .csv entregado 
+datos <- read.csv("EP07 Datos.csv")
+```
+
+# Contexto
+En el trabajo de título de una estudiante del DIINF se reportan tiempos de ejecución (en milisegundos) y la cercanía con la solución óptima (en por ciento) de la mejor solución encontrada con tres versiones de un algoritmo genético para resolver instancias del problema del vendedor viajero disponibles en repositorios públicos. Ahora debe enfrentar el análisis de estos datos, por que está solicitando ayuda de las y los estudiantes de Estadística Inferencial.
+
+# Equipo 4
+
+1.- Observando los datos, la memorista sospecha que hay diferencias significativas en el tiempo de ejecución entre las versiones B y C del algoritmo cuando las instancias tienen 65 o más nodos. ¿Los datos respaldan la intuición de la memorista?
+Para responder, filtren los datos para tener las instancias con 65 o más nodos y seleccionen las columnas de los tiempos de ejecución de las versiones B y C en formato ancho. Usando como semilla el valor 73, obtenga muestras aleatorias independientes de 24 tiempos registrados por la versión B y 20 tiempos registrados por la versión C del algoritmo. Realicen un análisis estadístico pertinente (enunciar hipótesis, revisar condiciones, seleccionar prueba) para responder la pregunta planteada, utilizando pruebas no paramétricas de ser necesario.
+
+R: Primero, se definen las hipótesis:
+
+Ho: No existe diferencia entre los tiempos de ejecución entre las versiones B y C del algoritmo
+Ha: Si existe diferencia entre los tiempos de ejecución entre las versiones B y C del algoritmo
+
+Como las versiones del algoritmo están sujetas a observaciones aleatorias, estas no estan apareadas de ninguna forma, por lo que se usarán funciones de muestras independientes.
+
+Además, los datos de la tabla ya están en formato ancho (cada columna es una variable, y cada fila una observación).
+
+Ahora se procede con el código:
+```{r}
+#Usamos la seed 73
+set.seed(73)
+
+#Con los datos ya leídos, se filtran para tener nodo > 64
+datos_filtrados = subset(datos, n.nodos > 64)
+
+#Se define el nivel de significancia
+alpha = 0.05
+
+#Se filtra para cada versión del algoritmo
+algoritmoB = sample(datos_filtrados$tiempo.B, 24)
+algoritmoC = sample(datos_filtrados$tiempo.C, 20)
+
+#Como las muestras son apareadas, se usa wilcoxon para rango de signos
+prueba1 = wilcox.test(algoritmoB, algoritmoC, alternative = "two.sided", paired = FALSE, conf.level = 1-alpha)
+
+print(prueba1)
+```
+
+Como el p-value es menor que el nivel de significancia, se rechaza la hipótesis nula con un 95% de confianza y se apoya la hipótesis alternativa.
+Con todo esto, se dice que si existe diferencia entre los tiempos de ejecución entre las versiones B y C del algoritmo.
+
+
+2.- La memorista también sospecha que, al comparar las mismas instancias de iguales características, las mejores soluciones encontradas por las versiones A y B tienen rendimientos distintos. ¿Estará en lo cierto?
+Para responder, filtren los datos para tener las instancias con 65 o más nodos y seleccionen las columnas con el mejor rendimiento de las versiones A y B en formato ancho. Usando como semilla el valor 13, obtengan una muestra aleatoria de 22 instancias. Realicen un análisis estadístico pertinente (enunciar hipótesis, revisar condiciones, seleccionar prueba) para responder la pregunta planteada, utilizando pruebas no paramétricas de ser necesario.
+
+R: Las hipótesis son:
+
+Ho: No hay diferencia en la eficiencia entre los mejores resultados de la versión A y los mejores resultados de la versión B.
+Ho: Si hay diferencia en la eficiencia entre los mejores resultados de la versión A y los mejores resultados de la versión B.
+
+Como ahora se trabaja con mismas instancias para ambas versiones del algoritmo, se está tratando con muestras apareadas, así tenemos:
+
+```{r}
+#Se usa la seed 13
+set.seed(13)
+
+#En la anterior pregunta se filtró ya para nodos > 64. Ahora, se filtrarán 22 datos de la tabla
+datos_filtrados_22Datos = datos_filtrados[sample(nrow(datos_filtrados), 22),]
+
+#Se filtra para versión A y B
+algoritmoA_mejor = datos_filtrados_22Datos$mejor.A
+algoritmoB_mejor = datos_filtrados_22Datos$mejor.B
+
+#Se aplica la prueba de Wilcox para muestras pareadas
+prueba2 = wilcox.test(algoritmoA_mejor, algoritmoB_mejor, alternative = "two.sided", paired = TRUE, conf.level = 1-alpha)
+
+print(prueba2)
+```
+
+Como el p-value es menor que el nivel de significancia, se rechaza la hipótesis nula con un 95% de confianza y se apoya la hipótesis alternativa.
+Con todo esto, se dice que si hay diferencia en la eficiencia entre los mejores resultados de la versión A y los mejores resultados de la versión B.
+
+
+3.- La memorista sospecha que hay diferencias significativas en el tiempo de ejecución entre las versiones del algoritmo cuando las instancias de prueba tienen 50 o más nodos. ¿Los datos respaldan la intuición de la memorista?
+Para responder, filtren los datos para tener las instancias con 50 o más nodos y seleccionen las columnas con los tiempos de ejecución registrados (en formato ancho). Usando como semilla el valor 31, obtengan muestras aleatorias independientes de 15, 14 y 13 tiempos registrados por las versiones A, B y C, respectivamente. Realicen un análisis estadístico pertinente (enunciar hipótesis, revisar condiciones, seleccionar prueba) para responder la pregunta planteada, utilizando pruebas no paramétricas de ser necesario.
+
+Hipótesis:
+Hipótesis nula (H0): No hay diferencias significativas en el tiempo de ejecución entre las versiones del algoritmo.
+Hipótesis alternativa (H1): Existen diferencias significativas en el tiempo de ejecución entre al menos dos versiones del algoritmo.
+
+Condiciones para la prueba:
+Las muestras deben ser independientes y provenir de una población con una distribución continua.
+
+Selección de prueba:
+Dado que estamos comparando las medianas de múltiples grupos y no asumimos una distribución normal en los datos, utilizaremos la prueba de Kruskal-Wallis.
+Las condiciones son:
+1.-Independencia de las muestras: Las instancias de prueba son seleccionadas aleatoriamente y no hay ninguna dependencia entre ellas, entonces esta condición podría considerarse satisfecha.
+2.-Datos ordinales o continuos: Los tiempos de ejecución son datos continuos, lo que satisface esta condición.
+3.-Homogeneidad de las varianzas:La prueba de Kruskal-Wallis es robusta a desviaciones moderadas de esta condición, por lo que pequeñas diferencias en las varianzas no deberían afectar significativamente los resultados.
+4.-Distribución idéntica de las poblaciones:No se asume una distribución específica para los datos, pero se espera que las distribuciones de los tiempos de ejecución de las tres versiones del algoritmo sean similares en forma, excepto posiblemente en la mediana
+```{r}
+# Comprobar la homogeneidad de las varianzas
+varianzas <- apply(tiempos_ejecucion, 2, var)  # Calcular las varianzas de cada muestra
+print(varianzas)  
+# Si las varianzas son aproximadamente iguales, entonces la homogeneidad de las varianzas se cumple.
+
+# Visualizar las distribuciones de las muestras
+par(mfrow=c(1, 3)) 
+hist(tiempos_ejecucion$tiempo.A, main="Algoritmo A", xlab="Tiempo de ejecución") 
+hist(tiempos_ejecucion$tiempo.B, main="Algoritmo B", xlab="Tiempo de ejecución") 
+hist(tiempos_ejecucion$tiempo.C, main="Algoritmo C", xlab="Tiempo de ejecución") 
+```
+
+
+para esto se utiliara un nivel de significancia del 0.1
+
+```{r}
+# Filtrar los datos para instancias con 50 o más nodos
+datos_filtrados <- datos[datos$n.nodos >= 50, ]
+
+# Seleccionar las columnas relevantes con los tiempos de ejecución (en formato ancho)
+tiempos_ejecucion <- datos_filtrados[, c("tiempo.A", "tiempo.B", "tiempo.C")]
+
+# Fijar la semilla para reproducibilidad
+set.seed(31)
+
+# Obtener muestras aleatorias independientes de tiempos registrados
+muestra_A <- sample(tiempos_ejecucion$tiempo.A, 15)
+muestra_B <- sample(tiempos_ejecucion$tiempo.B, 14)
+muestra_C <- sample(tiempos_ejecucion$tiempo.C, 13)
+
+# Realizar la prueba de Kruskal-Wallis para comparar los tiempos de ejecución entre las versiones del algoritmo
+resultado_prueba <- kruskal.test(list(muestra_A, muestra_B, muestra_C))
+
+# Imprimir el resultado de la prueba
+print(resultado_prueba)
+```
+Dado que el p-value = 0.1328 obtenido de la prueba de Kruskal-Wallis es mayor que el nivel de significancia = 0.1, no hay suficiente evidencia para rechazar la hipótesis nula. Por lo tanto, no podemos concluir que existan diferencias significativas en el tiempo de ejecución entre las versiones del algoritmo cuando las instancias de prueba tienen 50 o más nodos.
+
+4.- La memorista también sospecha que, al comparar las mismas instancias con iguales características, las mejores soluciones encontradas por las diferentes versiones del algoritmo tienen rendimientos distintos. ¿Estará en lo cierto?
+Para responder, filtren los datos para tener las instancias con 50 o más nodos y seleccionen las columnas con los mejores rendimientos registrados. Usando como semilla el valor 73, obtengan una muestra aleatoria de 22 instancias. Lleven los datos a formato largo y utilicen una prueba no paramétrica apropiada para analizar los datos obtenidos. Realicen un análisis estadístico pertinente (enunciar hipótesis, revisar condiciones, seleccionar prueba) para responder la pregunta planteada, utilizando pruebas no paramétricas de ser necesario.
+
+R: Las hipótesis son:
+
+Hipótesis nula (H0): Las muestras poseen igual rendimiento
+Hipótesis alternativa (H1): Las muestras no poseen igual rendimiento
+
+para esto se utiliara un nivel de significancia del 0.05
+
+```{r}
+#Se filtran los datos para obtener instancias de 50 o mas nodos
+datos <- subset(datos, n.nodos >= 50)
+
+#En la anterior pregunta se filtró ya para nodos > 64. Ahora, se filtrarán 22 datos de la tabla
+datos_filtrados_22Datos = datos_filtrados[sample(nrow(datos_filtrados), 22),]
+
+#Se filtra para versión A y B
+algoritmoA_mejor = datos_filtrados_22Datos$mejor.A
+algoritmoB_mejor = datos_filtrados_22Datos$mejor.B
+algoritmoC_mejor = datos_filtrados_22Datos$mejor.C
+
+```
+
+se utilizara una prueba no parametrica, La prueba de friedman
+
+las condiciones para utilizar la prueba de friedman son:
+
+1.- "La variable independiente debe ser categorica y tener a lo menos 3 niveles"
+Para este caso se cumple, ya que hay 3 niveles ("mejor.A, mejor.B, mejor.C").
+
+2.- "La escala de la variable dependiente debe ser a lo menos ordinal"
+Se cumple ya que la variable dependiente es el tiempo y este es ordinal.
+
+3.- "Las observaciones son una muestra aleatoria e independiente de la poblacion"
+Ya que se hizo una muestra aleatoria esta condición se cumple
+
+Puesto que se cumplen todas las condiciones se utilizara la prueba de Friedman.
+
+```{r}
+
+#friedman.test(x ~ w | t, data = wb)
+variables <- c(algoritmoA_mejor, algoritmoB_mejor, algoritmoC_mejor)
+
+variable_independiente <- c(rep("mejor.A", length(algoritmoA_mejor)),
+                   rep("mejor.B", length(algoritmoB_mejor)),
+                    rep("mejor.C", length(algoritmoC_mejor)))
+
+variable_independiente <- factor(variable_independiente)
+
+#Es un vector que asigna un identificador único a cada sujeto o instancia. En este caso, los sujetos son las instancias de datos.
+# Crear un vector de identificadores únicos para las 22 instancias de datos
+instancia <- rep(1:22)
+
+valores <- data.frame(instancia, variables, variable_independiente)
+
+prueba_friedman <- friedman.test(variables ~ variable_independiente | instancia, data = valores)
+
+print(prueba_friedman)
+```
+El resultado de esta prueba es un p-value =0.002369, este valor es menor a la significancia elegida, por lo tanto se rechaza la hipotesis nula, por lo tanto si existen diferencias entre el rendimiento de los algoritmos.
+
+

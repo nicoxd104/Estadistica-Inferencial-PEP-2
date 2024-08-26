@@ -1,0 +1,214 @@
+---
+title: "EP10-respuesta-equipo-1"
+date: "2024-08-06"
+output: html_document
+---
+
+```{r}
+# Instalar y cargar las librerías necesarias
+if(!require(dplyr)) install.packages("dplyr", dependencies=TRUE)
+if(!require(car)) install.packages("car", dependencies=TRUE)
+if(!require(MASS)) install.packages("MASS", dependencies=TRUE)
+if(!require(pROC)) install.packages("pROC", dependencies=TRUE)
+if(!require(ResourceSelection)) install.packages("ResourceSelection", dependencies=TRUE)
+
+library(dplyr)
+library(car)
+library(MASS)
+library(pROC)
+library(ResourceSelection)
+
+# Cargar los datos
+data <- read.csv2("EP09 Datos.csv")
+
+# Ver las primeras filas del dataset
+head(data)
+
+# Crear la variable IMC
+data$IMC <- data$Weight / (data$Height/100)^2
+
+# Crear la variable dicotómica EN
+data$EN <- ifelse(data$IMC >= 23.2, 1, 0)
+
+# Definir la semilla
+set.seed(2729)
+
+# Seleccionar 150 mujeres (Gender = 0)
+mujeres <- data %>%
+  filter(Gender == 0) %>%
+  sample_n(150)
+
+# Seleccionar 150 hombres (Gender = 1)
+hombres <- data %>%
+  filter(Gender == 1) %>%
+  sample_n(150)
+
+# Unir las muestras
+muestra <- rbind(mujeres, hombres)
+
+# Dividir los datos en entrenamiento y validación (50 personas)
+set.seed(1234)
+train_indices <- sample(seq_len(nrow(muestra)), size = 0.8 * nrow(muestra))
+train_data <- muestra[train_indices, ]
+test_data <- muestra[-train_indices, ]
+
+# Modelo inicial con un solo predictor ("Weight")
+modelo_inicial <- glm(EN ~ Weight, data = train_data, family = binomial)
+
+# Resumen del modelo inicial
+summary(modelo_inicial)
+
+# Uso de AIC para selección de variables
+# Ajustar modelos incrementando predictores
+modelo_1 <- glm(EN ~ Weight + Height, data = train_data, family = binomial)
+modelo_2 <- glm(EN ~ Weight + Height + Waist.Girth, data = train_data, family = binomial)
+modelo_3 <- glm(EN ~ Weight + Height + Waist.Girth + Hip.Girth, data = train_data, family = binomial)
+modelo_4 <- glm(EN ~ Weight + Height + Waist.Girth + Hip.Girth + Chest.Girth, data = train_data, family = binomial)
+
+# Comparar modelos usando AIC
+modelos <- list(modelo_inicial, modelo_1, modelo_2, modelo_3, modelo_4)
+nombres_modelos <- c("Modelo_Inicial", "Modelo_1", "Modelo_2", "Modelo_3", "Modelo_4")
+AIC_values <- sapply(modelos, AIC)
+data.frame(Modelo = nombres_modelos, AIC = AIC_values)
+
+# Seleccionar el mejor modelo basado en AIC
+mejor_modelo <- stepAIC(modelo_inicial, 
+                        scope = list(lower = modelo_inicial, 
+                                     upper = modelo_4), 
+                        direction = "both", 
+                        trace = FALSE)
+
+# Resumen del mejor modelo
+summary(mejor_modelo)
+
+# Evaluar la calidad del ajuste del mejor modelo
+pred_mejor_train <- predict(mejor_modelo, newdata = train_data, type = "response")
+clasificacion_train <- ifelse(pred_mejor_train > 0.5, 1, 0)
+matriz_confusion_train <- table(Prediccion = clasificacion_train, Realidad = train_data$EN)
+matriz_confusion_train
+
+# Calcular medidas de desempeño en entrenamiento
+accuracy_train <- sum(diag(matriz_confusion_train)) / sum(matriz_confusion_train)
+sensitivity_train <- matriz_confusion_train[2,2] / sum(matriz_confusion_train[,2])
+specificity_train <- matriz_confusion_train[1,1] / sum(matriz_confusion_train[,1])
+
+cat("Exactitud (Accuracy) en entrenamiento:", round(accuracy_train, 4), "\n")
+cat("Sensibilidad (Recall) en entrenamiento:", round(sensitivity_train, 4), "\n")
+cat("Especificidad en entrenamiento:", round(specificity_train, 4), "\n")
+
+# Evaluación en datos de validación
+pred_mejor_test <- predict(mejor_modelo, newdata = test_data, type = "response")
+clasificacion_test <- ifelse(pred_mejor_test > 0.5, 1, 0)
+matriz_confusion_test <- table(Prediccion = clasificacion_test, Realidad = test_data$EN)
+matriz_confusion_test
+
+# Calcular medidas de desempeño en validación
+accuracy_test <- sum(diag(matriz_confusion_test)) / sum(matriz_confusion_test)
+sensitivity_test <- matriz_confusion_test[2,2] / sum(matriz_confusion_test[,2])
+specificity_test <- matriz_confusion_test[1,1] / sum(matriz_confusion_test[,1])
+
+cat("Exactitud (Accuracy) en validación:", round(accuracy_test, 4), "\n")
+cat("Sensibilidad (Recall) en validación:", round(sensitivity_test, 4), "\n")
+cat("Especificidad en validación:", round(specificity_test, 4), "\n")
+
+# Verificación de multicolinealidad
+vif_values <- vif(mejor_modelo)
+vif_values
+
+# Verificación de la linealidad de las variables continuas en logit
+pred_logit <- log(pred_mejor_train / (1 - pred_mejor_train))
+train_data$logit_Weight <- train_data$Weight * pred_logit
+train_data$logit_Height <- train_data$Height * pred_logit
+train_data$logit_Waist.Girth <- train_data$Waist.Girth * pred_logit
+
+# Añadir interacciones logit para verificar la linealidad en el logit
+modelo_linealidad <- glm(EN ~ Weight + Height + Waist.Girth + 
+                         logit_Weight + logit_Height + logit_Waist.Girth, 
+                         family = binomial, data = train_data)
+summary(modelo_linealidad)
+
+# Prueba de bondad de ajuste de Hosmer-Lemeshow
+hl_test <- hoslem.test(train_data$EN, pred_mejor_train, g=10)
+hl_test
+
+# Interpretación de la prueba de Hosmer-Lemeshow
+cat("P-valor de la prueba de Hosmer-Lemeshow:", hl_test$p.value, "\n")
+if(hl_test$p.value > 0.05){
+  cat("No se rechaza la hipótesis nula: El modelo se ajusta bien a los datos.\n")
+} else {
+  cat("Se rechaza la hipótesis nula: El modelo no se ajusta bien a los datos.\n")
+}
+
+# Curva ROC y AUC para el mejor modelo
+roc_curve <- roc(test_data$EN, pred_mejor_test)
+plot(roc_curve, main = "Curva ROC para el Mejor Modelo")
+auc_value <- auc(roc_curve)
+cat("AUC:", round(auc_value, 4), "\n")
+
+# Diagnóstico de residuos (Deviance y Pearson)
+res_dev <- residuals(mejor_modelo, type = "deviance")
+res_pearson <- residuals(mejor_modelo, type = "pearson")
+
+# Gráficos de residuos
+par(mfrow = c(1,2))
+plot(res_dev, main = "Residuos de Deviance", ylab = "Residuos", xlab = "Índice")
+abline(h = 0, col = "red")
+
+plot(res_pearson, main = "Residuos de Pearson", ylab = "Residuos", xlab = "Índice")
+abline(h = 0, col = "red")
+par(mfrow = c(1,1))
+
+# Graficar la Distancia de Cook con línea de corte
+cooksd <- cooks.distance(mejor_modelo)
+plot(cooksd, main = "Distancia de Cook", ylab = "Distancia de Cook", xlab = "Índice")
+abline(h = 4 / (nrow(train_data) - length(coef(mejor_modelo))), col = "red")
+
+# Identificar y revisar puntos influyentes
+influential_points <- which(cooksd > 4 / (nrow(train_data) - length(coef(mejor_modelo))))
+print(influential_points)
+
+# Revisar los datos de los puntos influyentes
+if (length(influential_points) > 0) {
+  influential_data <- train_data[influential_points, ]
+  print(influential_data)
+}
+
+```
+
+Conclusión de los Modelos de Regresión Logística
+
+
+Modelo con un solo predictor (Peso):
+
+Coeficientes: El coeficiente de Weight es 0.2074 (p < 2e-16), indicando que el peso tiene una influencia significativa en la variable de respuesta EN.
+Desviación: La deviance residual disminuyó de 330.69 a 167.00, lo que sugiere una mejoría al incluir el predictor.
+AIC: 171. Un AIC más bajo indica un mejor ajuste del modelo, pero también sugiere que el modelo puede ser mejorado añadiendo más predictores.
+
+
+Modelo con dos predictores (Peso y Altura):
+
+Coeficientes: Ambos Weight (5.716, p = 0.0357) y Height (-4.597, p = 0.0367) son significativos. Esto indica que ambos predictores tienen un impacto significativo en EN.
+Desviación: La deviance residual bajó considerablemente a 11.311, lo que muestra una mejora significativa en el ajuste del modelo.
+AIC: 17.311. El modelo con dos predictores tiene un AIC mucho más bajo, indicando un ajuste significativamente mejor en comparación con el modelo con un solo predictor.
+Exactitud y Métricas: El modelo muestra una alta exactitud (0.9917) en los datos de entrenamiento y una excelente precisión, sensibilidad y especificidad. El rendimiento en los datos de validación también es sólido (0.9667 en exactitud, sensibilidad y especificidad).
+
+
+Modelo con múltiples predictores y términos de interacción (Peso, Altura, Cintura y términos logit):
+
+Coeficientes: Los coeficientes son extremadamente grandes, lo que indica problemas potenciales de colinealidad o ajuste inadecuado del modelo.
+Desviación: La deviance residual es 216.26, que es más alta que en el modelo con solo Weight y Height, lo que indica un ajuste peor con los términos adicionales.
+AIC: 230.26, que es más alto que los modelos anteriores, sugiriendo que la adición de predictores y términos logit no mejora el modelo y puede estar añadiendo complejidad innecesaria.
+Prueba de Hosmer-Lemeshow: El p-valor de 0.9999 sugiere que el modelo se ajusta bien a los datos, pero los coeficientes extremadamente grandes y los problemas reportados durante el ajuste sugieren que el modelo puede no ser adecuado.
+AUC: 0.9989, que es muy alto, pero dado el ajuste deficiente observado, este valor puede ser engañoso.
+
+
+
+Modelo Óptimo: El modelo con Weight y Height parece ser el más balanceado y robusto, dado su bajo AIC y las métricas sólidas tanto en entrenamiento como en validación.
+
+Revisión de Modelo Complejo: El modelo con múltiples predictores y términos logit muestra problemas con coeficientes extremadamente grandes y un ajuste relativamente malo. Este modelo debería ser revisado para problemas de colinealidad o ajuste.
+
+Validación Adicional: Considera realizar una validación cruzada o evaluar el modelo con un conjunto de datos completamente nuevo para confirmar la generalización del modelo.
+
+Ajuste de Modelo: Elimina o ajusta los predictores y términos problemáticos en el modelo complejo para mejorar la estabilidad y la interpretabilidad.
+
+En resumen, el modelo con Weight y Height proporciona un ajuste sólido y debe considerarse como la mejor opción basándose en las métricas de ajuste y generalización.
