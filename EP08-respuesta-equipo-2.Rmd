@@ -1,0 +1,125 @@
+---
+title: "EP08-respuesta-equipo-2"
+date: "2024-05-01"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+# abrir el archivo con los datos
+datos <- read.csv2("EP08 Datos CASEN 2017.csv")
+```
+
+# Pregunta con Monte Carlo
+
+utilizando los datos de la encuesta casen se respondera a la siguiente pregunta de  "los hombres en la region metropolitana, trabajan la misma cantidad de horas semanales que las mujeres en la region metropolitana".
+
+para responder esta pregunta en primera instancia se filtraran ls datos y se obtendran una muestra de los mismos.
+```{r}
+set.seed(1412)
+
+datos_pregunta1 <- datos %>% 
+  filter(region == "Regi�n Metropolitana de Santiago")
+
+hombres_santiago <- datos_pregunta1 %>% 
+  filter(sexo == "Hombre" & !is.na(o10)) %>%
+  select(sexo, o10)
+
+mujeres_santiago <- datos_pregunta1 %>% 
+  filter(sexo == "Mujer" & !is.na(o10)) %>%
+  select(sexo, o10)
+
+muestra_hombres <- hombres_santiago %>% 
+  sample_n(125, replace = FALSE)
+
+muestra_mujeres <- mujeres_santiago %>% 
+  sample_n(125, replace = FALSE)
+```
+
+ahora para hacer el contraste de hipotesis se utilizara el metodo de monte carlo, para el cual se definiran las siguientes hipotesis:
+
+hipotesis nula: "la cantidad de horas trabajadas por hombres y mujeres es la misma"
+hipotesis alternativa: "la cantidad de horas trabajadas por hombres y mujeres es distinta"
+
+```{r}
+simular_diferencia_horas_mejorada <- function(muestra_hombres, muestra_mujeres) {
+  diferencia_observada <- mean(muestra_hombres$o10) - mean(muestra_mujeres$o10)
+  
+  num_simulaciones <- 10000
+  diferencias_simuladas <- numeric(num_simulaciones)
+  for (i in 1:num_simulaciones) {
+    horas_mezcladas <- c(muestra_hombres$o10, muestra_mujeres$o10)
+    horas_mezcladas <- sample(horas_mezcladas)
+    
+    diferencia_simulada <- mean(horas_mezcladas[1:125]) - mean(horas_mezcladas[126:250])
+    diferencias_simuladas[i] <- diferencia_simulada
+  }
+  
+  p_valor <- mean(abs(diferencias_simuladas) >= abs(diferencia_observada), na.rm = TRUE)
+  
+  return(p_valor)
+}
+
+p_valor_mejorado <- simular_diferencia_horas_mejorada(muestra_hombres, muestra_mujeres)
+
+print(p_valor_mejorado)
+
+```
+Como el valor p obtenido es mayor al nivel de significancia (p-value > 0.05), se falla en rechazar la hipotesis nula. Por lo tanto, concluimos con un 95% de confianza que hay una diferencia significativa en la cantidad de horas trabajadas por hombres y mujeres.
+
+# Pregunta con Bootstrap
+
+Utilizando los datos de la encuesta CASEN se responder a la siguiente pregunta ¿Existe una diferencia significativa en la edad promedio entre dos grupos de personas que reportaron diferentes niveles de dificultad (audicion y concentracion/memoria) en la Región Metropolitana de Santiago?.
+```{r}
+set.seed(423)
+
+datos_pregunta <- datos %>%
+  filter(region == "Regi�n Metropolitana de Santiago")
+
+# Obtener filas con "S�, algo de dificultad", y "S�, mucha dificultad" en la columna "h10b" y la gente con edad menor a 65 (Uso de audifono o sordera).
+datos_h10b <- datos_pregunta %>%
+  filter(h10b %in% c("S�, algo de dificultad", "S�, mucha dificultad")) %>% filter(edad < 65)
+
+# Obtener filas con "S�, algo de dificultad" y S�, mucha dificultad en la columna "h10d" y la gente con edad menor a 65 (Dificultad para recordar o para concentrarse).
+datos_h10d <- datos_pregunta %>%
+  filter(h10d %in% c("S�, algo de dificultad", "S�, mucha dificultad")) %>% filter(edad < 65)
+
+# Obtener muestra de "h10b".
+muestra_h10b <- sample(datos_h10b$edad,275, replace = TRUE)
+
+# Obtener muestra de "h10d".
+muestra_h10d <- sample(datos_h10d$edad, 275, replace = TRUE)
+```
+
+Ahora para hacer el contraste de hipotesis se utilizara el metodo de bootstraping, para el cual se definiran las siguientes hipotesis:
+Hipotesis nula:"No hay una diferencia significativa en la edad promedio entre los dos grupos."
+Hipotesis alternativa: "Hay una diferencia significativa en la edad promedio entre los dos grupos."
+
+```{r}
+library(simpleboot)
+library(boot)
+
+# Calculo de la media de h10b.
+media_h10b <- mean(muestra_h10b)
+
+# Calculo de la media de h10d.
+media_h10d <- mean(muestra_h10d)
+
+# Calculo del valor observado.
+valor_observado <- media_h10b - media_h10d
+
+# Crear distribución de bootstrap.
+B <- 2999
+valor_nulo = 0
+distribucion_bootstrap <- two.boot(muestra_h10b, muestra_h10d, FUN = mean, R = B)
+desplazamiento <- mean(distribucion_bootstrap[["t"]]) - valor_nulo
+distribucion_nula <- distribucion_bootstrap[["t"]] - desplazamiento
+
+# Determinar el valor p.
+p <- (sum(abs(distribucion_nula) > abs(valor_observado)) + 1) / (B + 1)
+cat("Valor p:", p)
+```
+
+Como el valor p obtenido es mucho menor a cualquier nivel de significancia, por lo que se rechaza la hipotesis nula. Por lo tanto, concluimos con un 99% de confianza que hay una diferencia significativa en la edad promedio entre los dos grupos.
+
+Los datos indican una diferencia significativa en la edad promedio entre las personas con problemas de audición y problemas de memoria/concentración. Esto sugiere una posible separación entre ambos problemas en esta población. Sin embargo, se necesitan más estudios para confirmar esta relación y explorar otros factores que podrían influir en estos resultados.
