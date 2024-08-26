@@ -1,0 +1,84 @@
+---
+title: "EP09"
+output: html_document
+date: "2024-06-03"
+---
+```{r libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(car)
+```
+
+
+1- Definir la semilla a utilizar, que corresponde a los últimos cuatro dígitos del RUN (sin considerar el dígito verificador) del integrante de menor edad del equipo.
+
+2- Seleccionar una muestra aleatoria de 100 mujeres (si la semilla es un número par) o 100 hombres (si la semilla es impar), y separar 70 casos para trabajar en la construcción de modelos y 30 para su evaluación en datos no vistos.
+
+3- Seleccionar de forma aleatoria ocho posibles variables predictoras.
+
+4- Seleccionar, de las otras variables, una que el equipo considere que podría ser útil para predecir la variable Peso (sin considerar la estatura), justificando bien esta selección.
+
+5- Usando el entorno R y paquetes estándares1, construir un modelo de regresión lineal simple con el predictor seleccionado en el paso anterior.
+
+6- Usando herramientas estándares1 para la exploración de modelos del entorno R, buscar entre dos y cinco predictores de entre las variables seleccionadas al azar en el punto 3, para agregar al modelo de regresión lineal simple obtenido en el paso 5.
+
+7- Evaluar la bondad de ajuste (incluyendo el análisis de casos atípicos y casos influyentes) y la generalidad (condiciones para RLM) de los modelos y “arreglarlos” en caso de que presenten algún problema.
+
+8- Evaluar el poder predictivo del modelo con los datos no utilizados para construirlo.
+
+```{r}
+set.seed(1784)
+datos = read.csv2("EP09 Datos.csv")
+muestra = datos %>% filter(Gender == 0) %>% sample_n(100, replace = FALSE)
+cor(muestra)
+
+#Se va a seleccionar la variable Navel.Girth (Grosor a la altura del ombligo), ya que, tiene sentido que a medida que ésta aumente, mayor peso tenga la persona, además, podemos ver en la matriz de covarianzas que esta variable tiene una correlación de 0.8 con el peso.
+muestra = sample(muestra, 8) %>% mutate(Navel.Girth = muestra$Navel.Girth) %>% mutate(Weight = muestra$Weight)
+entrenamiento = muestra %>% sample_n(70, replace = FALSE)
+prueba = muestra %>% anti_join(entrenamiento)
+
+#Creamos un modelo rls
+MRLS = lm(Weight ~ Navel.Girth, entrenamiento)
+summary(MRLS)
+
+#Usamos la función step para obtener el modelo RLM, usando selección hacia adelante
+#Modelo completo
+completo = lm(Weight ~ ., entrenamiento)
+MRLM = step(MRLS, scope = list(upper = completo), direction = "forward", trace = 1)
+summary(MRLM)
+
+# Condiciones
+#1- Las variables predictoras deben ser cuantitativas o dicotómicas -> se cumple para ambos modelos, ya que todos los predictores son cuantitativos
+#2- La variable de respuesta debe ser cuantitativa y continua -> se cumple ya que el peso es una variable continua  y cuantitativa
+#3- Los predictores no deben ser constantes -> la única variable constante era el género, la cual no se usó en ningún modelo, por lo tanto, se cumple la condición
+#4- No debe existir multicolinealidad -> para el caso del primer modelo al ser de rls, se cumple.
+#Para el segundo modelo usaremos el factor de inflación de varianza (vif)
+vif(MRLM)
+#Como ninguno de los vif es muy alto, entonces se cumple la condición
+#5- Los residuos deben ser homocedásticos para cada nivel de predictores (usamos la prueba de Breusch-Pagan)
+ncvTest(MRLS)
+ncvTest(MRLM)
+#En ambos casos el p-value es mayor a 0.05 por lo que la condición de homocedasticidad se cumple
+#6- Los residuos siguen una distribución normal centrada en 0 (se utiliza la prueba de shapiro Wilk)
+shapiro.test(MRLS$residuals)
+shapiro.test(MRLM$residuals)
+#En ambos modelos el p-value es mayor a 0.05 por lo que se cumple la condición
+#7- Los valores de la variable de respuesta son independientes entre sí -> se cumple ya que el peso es independiente en cada observación
+#8- Cada predictor se relaciona linealmente con la variable de respuesta -> podemos ver en la matriz de correlaciones que todos los predictores tiene una correlación bastante alta (mayor a 0.5) por lo que sí existe una relación lineal entre los predictores y la variable de respuesta
+
+# Ahora evaluaremos los casos atípicos con la distancia de Cook
+max(cooks.distance(MRLS))
+max(cooks.distance(MRLM))
+#En ambos casos el valor de la distancia de Cook es menor a 1, por lo que no hay casos atípicos
+
+#Por último evaluaremos el modelo con los datos de prueba, usando la función predict y luego calculando el mse
+prediccion1 = predict(MRLM, newdata = prueba)
+error = prueba[["Weight"]] - prediccion1
+mse_error_MRLM = mean(error^2)
+mse_error_MRLM
+prediccion2 = predict(MRLS, newdata = prueba)
+error = prueba[["Weight"]] - prediccion2
+mse_error_MRLS = mean(error^2)
+mse_error_MRLS
+```
+Finalmente podemos concluir que el modelo de RLM es mejor que el modelo de RLS, ya que tiene un menor error cuadrático medio, por lo que es capaz de predecir mejor, y no parece estar sobre ajustado. Además ambos modelos cumplen con todas las condiciones para ser poder ser generalizados.
+
