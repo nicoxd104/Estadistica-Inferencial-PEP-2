@@ -1,0 +1,195 @@
+---
+title: "EP10"
+output: html_document
+date: "2024-08-05"
+---
+```{r libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(leaps)
+library(caret)
+library(pROC)
+#library(lmtest)
+library(car)
+#library(ggpubr)
+```
+
+#### Para este ejercicio usaremos los datos de medidas anatómicas recolectados por Heinz et al. (2003) que ya hemos utilizado en los ejercicios prácticos anteriores (disponibles en el archivo "EP09 Datos.csv"), con la adición de las variables IMC y EN consideradas en el ejercicio práctico anterior.
+```{r}
+datos = read.csv2("EP09 Datos.csv")
+datos = datos %>% mutate(IMC = (Weight / (Height / 100)^2))
+datos = datos %>% mutate(EN = ifelse(IMC >= 23.2, 1, 0))
+```
+
+
+#### 1. Definir la semilla a utilizar, que corresponde a los primeros cinco dígitos del RUN del integrante de mayor edad del equipo.
+```{r}
+set.seed(51784)
+```
+
+
+#### 2. Seleccionar una muestra de 100 personas, asegurando que la mitad tenga estado nutricional “sobrepeso” y la otra mitad “no sobrepeso”.
+```{r}
+noSobrepeso = datos %>% filter(EN == 0) %>% sample_n(50)
+sobrepeso = datos %>% filter(EN == 1) %>% sample_n(50)
+muestra = rbind(noSobrepeso, sobrepeso)
+```
+
+
+#### 3. Usando las herramientas del paquete leaps, realizar una búsqueda exhaustiva para seleccionar entre dos y ocho predictores que ayuden a estimar la variable Peso (Weight), obviamente sin considerar las nuevas variables IMC ni EN, y luego utilizar las funciones del paquete caret para construir un modelo de regresión lineal múltiple con los predictores escogidos y evaluarlo usando bootstrapping.
+```{r}
+muestra2 = subset(muestra, select = -c(IMC, EN))
+regsub = regsubsets(Weight ~ ., data = muestra2, nvmax = 8)
+plot(regsub)
+```
+
+Considerando el gráfico usaremos los predictores: Waist.Girth, Thigh.Girth, Height. Son los que parecen ser más significativos en la mayoría de los modelos.
+```{r}
+#Construcción y evaluación del modelo
+train_control = trainControl(method = "boot", number = 1000)
+bootstrap = train(Weight ~ Waist.Girth + Thigh.Girth + Height, data = muestra2, method = "lm", trControl = train_control)
+modelo1 = lm(Weight ~ Waist.Girth + Thigh.Girth + Height, data = muestra2)
+```
+
+```{r}
+summary(modelo1)
+```
+Podemos ver que los tres predictores escogidos son significativos, ya que sus p-value son menores a 0.05. Además, el R2 ajustado del modelo es de 0.9596, lo que indica que el modelo explica aproximadamente un 96%  de la variabilidad de la variable Peso.
+
+```{r}
+bootstrap
+```
+En cuanto a la evaluación realizada mediante bootstrapping, podemos ver que el error cuadrático medio es de 2.791574, lo que indica que el modelo predice la variable Peso con un error promedio de 2.79 kg.
+Además el R2 del modelo es de 0.9579749, lo que indica que el modelo tiene un ajuste bastante bueno.
+
+
+#### 4. Haciendo un poco de investigación sobre el paquete caret, en particular cómo hacer Recursive Feature Elimination (RFE), construir un modelo de regresión lineal múltiple para predecir la variable IMC que incluya entre 10 y 20 predictores, seleccionando el conjunto de variables que maximice R2 y que use cinco repeticiones de validación cruzada de cinco pliegues para evitar el sobreajuste (obviamente no se debe considerar las variables Peso, Estatura ni estado nutricional –Weight, Height, EN respectivamente).
+```{r}
+muestra3 = subset(muestra, select = -c(Weight, Height, EN))
+#RFE
+ctrl = rfeControl(functions = lmFuncs, method = "repeatedcv", number = 5, repeats = 5)
+rfe = rfe(muestra3[, -which(names(muestra3) == "IMC")], muestra3$IMC, sizes = c(10:20), rfeControl = ctrl, metric = "Rsquared")
+predictors(rfe)
+```
+
+Construimos el modelo con los predictores seleccionados.
+```{r}
+modelo2 = lm(IMC ~ Wrists.diameter + Gender + Thigh.Girth + Bicep.Girth + Ankles.diameter + Ankle.Minimum.Girth + Calf.Maximum.Girth + Waist.Girth + Biacromial.diameter + Wrist.Minimum.Girth + Elbows.diameter, muestra3)
+summary(modelo2)
+```
+
+
+#### 5. Usando RFE, construir un modelo de regresión logística múltiple para la variable EN que incluya el conjunto, de entre dos y seis, predictores que entregue la mejor curva ROC y que utilice validación cruzada dejando uno fuera para evitar el sobreajuste (obviamente no se debe considerar las variables Peso, Estatura –Weight y Height respectivamente– ni IMC).
+```{r warning=FALSE}
+muestra4 = subset(muestra, select = -c(Weight, Height, IMC))
+
+#RFE
+ctrl = rfeControl(functions = lrFuncs, method = "LOOCV", verbose = FALSE)
+rfe = rfe(muestra4[, -which(names(muestra4) == "EN")], 
+          factor(muestra4$EN), 
+          sizes = c(2:6), 
+          rfeControl = ctrl,
+          metric = "ROC")
+
+predictors(rfe)
+```
+
+Construimos el modelo con los predictores seleccionados.
+```{r}
+modelo3 = glm(EN ~ Wrists.diameter + Bicep.Girth + Thigh.Girth + Calf.Maximum.Girth + Waist.Girth + Chest.diameter, data = muestra4, family = "binomial")
+summary(modelo3)
+```
+
+
+#### 6. Pronunciarse sobre la confiabilidad y el poder predictivo de los modelos obtenidos.
+
+Primero evaluamos los modelos de regresión lineal múltiple.
+```{r}
+# Condiciones
+#1- Las variables predictoras deben ser cuantitativas o dicotómicas -> se cumple para ambos modelos, ya que todos los predictores son cuantitativos a excepción del género, el cual es dicotómico.
+
+#2- La variable de respuesta debe ser cuantitativa y continua -> se cumple ya que, tanto el peso como el IMC, son variables continuas  y cuantitativas
+
+#3- Los predictores no deben ser constantes -> no hay variables constantes en los datos, por lo tanto, también se cumple esta condición
+
+#4- No debe existir multicolinealidad -> 
+# Usaremos el factor de inflación de varianza (vif) para ver si existe multicolinealidad
+vif(modelo1)
+vif(modelo2)
+#Para el primer modelo, como ningún vif es mayor a 5 se cumple la condición
+#Pero para el segundo hay que tener cuidado con las variables: Wrists.diameter, Gender, Bicep.Girth, Wrist.Minimum.Girth y Elbows.diameter.
+
+#5- Los residuos deben ser homocedásticos para cada nivel de predictores (usamos la prueba de Breusch-Pagan)
+ncvTest(modelo1)
+ncvTest(modelo2)
+#Solo se cumple la condición para el modelo 1, donde el p-value es mayor a 0.05, no así en el modelo 2.
+
+#6- Los residuos siguen una distribución normal centrada en 0 (se utiliza la prueba de shapiro Wilk)
+shapiro.test(modelo1$residuals)
+shapiro.test(modelo2$residuals)
+#En ambos modelos el p-value es mayor a 0.05 por lo que se cumple la condición
+
+#7- Los valores de la variable de respuesta son independientes entre sí -> se cumple ya que se eliminaron las variables que dependen directamente con las variables de respuesta (Peso y IMC)
+
+#8- Cada predictor se relaciona linealmente con la variable de respuesta 
+#Observamos la matriz de correlaciones
+cor(muestra)
+#En el modelo 1 podemos ver que todos los predictores tiene una correlación bastante alta (mayor a 0.5) por lo que sí existe una relación lineal entre los predictores y la variable de respuesta
+#En el modelo 2, los predictores con una correlación no muy alta son: Wrists.diameter, Gender, Ankles.diameter, Ankle.Minimum.Girth, Biacromial.diameter, Wrist.Minimum.Girth, Elbows.diameter, que tienen valores entre 0.4 y 0.6, si bien no es una baja relación, no es tan alta como en el modelo 1. 
+
+# Ahora evaluaremos los casos atípicos con la distancia de Cook
+max(cooks.distance(modelo1))
+max(cooks.distance(modelo2))
+#En ambos casos el valor de la distancia de Cook es menor a 1, por lo que no hay casos atípicos
+
+#Por último evaluaremos el poder predictivo de los modelos
+summary(modelo1)
+mean(modelo1$residuals**2) #MSE
+#El primer modelo tiene un R2 ajustado de 0.9596, lo que indica que el modelo explica aproximadamente un 96% de la variabilidad de la variable Peso. Lo cual es bastante bueno. Además tiene un MSE de 6.894873, lo que indica que el modelo predice la variable Peso con un error promedio de 6.89 kg, es decir, el modelo no predice muy bien la variable Peso.
+
+summary(modelo2)
+mean(modelo2$residuals**2) #MSE
+#El segundo modelo tiene un R2 ajustado de 0.8966, lo que indica que el modelo explica aproximadamente un 90% de la variabilidad de la variable IMC. Lo cual es pero que el primero, pero sigue siendo bastante bueno. Además tiene un MSE de 0.9707005, lo que indica que el modelo predice la variable IMC con un error promedio de 0.97, y considerando los valores en los que oscila el IMC, el modelo no predice del todo bien la variable IMC.
+```
+
+Ahora evaluamos el modelo de regresión logística.
+```{r}
+#Verificamos multicolinealidad
+vif(modelo3)
+#Como ningún VIF es mayor a 5, podemos decir que no existe multicolinealidad en el modelo.
+```
+
+
+
+```{r}
+#Verificamos la bondad de ajuste de los modelos, para ello compararemos los AIC de los modelos con el modelo nulo
+glm(EN ~ 1, family =binomial(link = "logit"), data = muestra4)
+modelo3
+#Vemos que el AIC del modelo nulo es de 140.6, mientras que para el modelo 3 es de 47.53, por lo que el modelo tiene un buen nivel de ajuste
+```
+
+
+```{r}
+#Verificamos la generalidad del modelo, para esto verificamos si existen valores atípicos. (usando la distancia de Cook)
+which(cooks.distance(modelo3) > 1)
+#Vemos que no existen distancias mayores a 1, por lo que no hay valores atípicos
+``` 
+
+Ahora verificamos la capacidad predictiva del modelo
+```{r}
+pred = predict(modelo3, muestra4, type = "response")
+
+roc = roc(muestra4$EN, pred)
+
+pred = sapply(pred, function(p) ifelse(p >= 0.5, 1, 0))
+muestra4$EN = factor(muestra4$EN, levels = c(0, 1))
+pred = factor(pred, levels = levels(muestra4$EN))
+
+ggroc(roc, color = "red")
+#Se observa que la curva ROC está bastante lejos de la diagonal por lo que el poder predictivo de los modelos es bueno.
+```
+
+```{r}
+confusionMatrix(pred, muestra4$EN)
+#El modelo parece predecir bastante bien con un 92% de exactitud.
+#Ahora en términos de especificidad y sensibilidad, tiene 0.94 y 0.90 respectivamente. Por lo tanto podemos decir, que el modelo predice de mejor manera las observaciones pertenecientes a la clase negativa, para nuestro caso, las personas con sobrepeso. Aunque en ambos casos las predicciones son bastante buenas.
+```
