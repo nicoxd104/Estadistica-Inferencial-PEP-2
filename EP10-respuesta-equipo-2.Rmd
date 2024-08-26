@@ -1,0 +1,155 @@
+---
+title: "EP10"
+output: html_document
+date: "2024-08-05"
+---
+```{r libraries, message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+library(pROC)
+library(lmtest)
+library(car)
+library(ggpubr)
+```
+
+#### El equipo crea la variable IMC (índice de masa corporal) como el peso de una persona (en kilogramos) dividida por el cuadrado de su estatura (en metros).
+```{r}
+datos = read.csv2("EP09 Datos.csv")
+datos = datos %>% mutate(IMC = (Weight / (Height / 100)^2))
+```
+
+#### <br> Si bien esta variable se usa para clasificar a las personas en varias clases de estado nutricional (bajo peso, normal, sobrepeso, obesidad, obesidad mórbida), para efectos de este ejercicio, usaremos dos clases: sobrepeso (IMC ≥ 23,2) y no sobrepeso (IMC < 23,2)
+#### El equipo crea la variable dicotómica EN (estado nutricional) de acuerdo al valor de IMC de cada persona.
+```{r}
+datos = datos %>% mutate(EN = ifelse(IMC >= 23.2, 1, 0))
+```
+
+#### <br> 1. Definir la semilla a utilizar, que corresponde a los últimos cuatro dígitos del RUN (sin considerar el dígito verificador) del integrante de mayor edad del equipo.
+```{r}
+set.seed(1784)
+```
+
+#### <br> 2. Seleccionar una muestra de 150 mujeres (si la semilla es un número par) o 150 hombres (si la semilla es impar), asegurando que la mitad tenga estado nutricional “sobrepeso” y la otra mitad “no sobrepeso” en cada caso. Dividir esta muestra en dos conjuntos: los datos de 100 personas (50 con EN “sobrepeso”) para utilizar en la construcción de los modelos y 50 personas (25 con EN “sobrepeso”) para poder evaluarlos.
+```{r}
+noSobrepeso = datos %>% filter(Gender == 0, EN == 0) %>% sample_n(75)
+sobrepeso = datos %>% filter(Gender == 0, EN == 1) %>% sample_n(75)
+
+entrenamiento = rbind(head(noSobrepeso, 50), head(sobrepeso, 50))
+prueba = rbind(tail(noSobrepeso, 25), tail(sobrepeso, 25))
+
+muestra = rbind(entrenamiento, prueba)
+```
+
+#### <br> 3. Recordar las ocho posibles variables predictoras seleccionadas de forma aleatoria en el ejercicio anterior.
+
+[Ankle.Minimum.Girth, Ankles.diameter, Waist.Girth, Elbows.diameter, Bicep.Girth, Hip.Girth, Gender, Chest.diameter]
+
+#### <br> 4. Seleccionar, de las otras variables, una que el equipo considere que podría ser útil para predecir la clase EN, justificando bien esta selección (idealmente con literatura).
+
+Primero observaremos la matriz de covarianzas para ver si existe alguna variable que tenga una correlación alta con la variable EN.
+```{r}
+cor(muestra)
+```
+Existen varias variables que tienen una correlación alta con la variable EN, sin embargo, la variable que se seleccionara es Thigh.Girth, ya que es usado en algunos indicadores antropométricos para determinar la distribución de grasa corporal, y por lo tanto, podría ser útil para predecir la clase EN.
+
+
+#### <br> 5. Usando el entorno R, construir un modelo de regresión logística con el predictor seleccionado en el paso anterior y utilizando de la muestra obtenida.
+```{r}
+modelo1 = glm(EN ~ Thigh.Girth, family =binomial(link = "logit"), data = entrenamiento)
+summary(modelo1)
+```
+
+#### <br> 6. Usando estas herramientas para la exploración de modelos del entorno R, buscar entre dos y cinco predictores de entre las variables seleccionadas al azar, recordadas en el punto 3, para agregar al modelo obtenido en el paso 5.
+
+Se utilizará la función step que nos permite hacer la selección hacia adelante, y de esta manera poder obtener predictores significativos.
+
+```{r}
+#Primero dejamos solo las variables con las que vamos a trabajar
+entrenamiento = entrenamiento %>% select(Ankle.Minimum.Girth, Ankles.diameter, Waist.Girth, Elbows.diameter, Bicep.Girth, Hip.Girth, Gender, Chest.diameter, EN, Thigh.Girth)
+
+completo = glm(EN ~ ., family =binomial(link = "logit"), data = entrenamiento)
+
+#Ponemos el parámetro trace = 1 para que nos muestre el proceso de selección
+modelo2 = step(modelo1, scope = list(upper = completo), direction = "forward", trace = 1)
+summary(modelo2)
+```
+
+#### <br> 7. Evaluar la confiabilidad de los modelos (i.e. que tengan un buen nivel de ajuste y son generalizables) y “arreglarlos” en caso de que tengan algún problema.
+
+Primero verificamos la multicolinealidad de los predictores para el modelo 2, para ello utilizamos el VIF
+```{r}
+vif(modelo2)
+```
+Como ningún VIF es mayor a 5, podemos decir que no existe multicolinealidad en el modelo.
+
+Verificamos la bondad de ajuste de los modelos, para ello compararemos los AIC de los modelos con el modelo nulo
+```{r}
+glm(EN ~ 1, family =binomial(link = "logit"), data = entrenamiento)
+```
+Vemos que el AIC del modelo nulo es de 140, mientras que para los modelos 1 y 2 son de 71 y 44 respectivamente, por lo que ambos modelos tienen un buen nivel de ajuste.
+
+Verificamos la generalidad del modelo, para esto verificamos si existen valores atípicos. (usando la distancia de Cook)
+```{r}
+which(cooks.distance(modelo1) > 1)
+which(cooks.distance(modelo2) > 1)
+``` 
+Vemos que no existen distancias mayores a 1, por lo que no hay valores atípicos
+
+#### <br> 8. Usando código estándar1, evaluar el poder predictivo de los modelos con los datos de las 50 personas que no se incluyeron en su construcción en términos de sensibilidad y especificidad.
+```{r}
+pred1 = predict(modelo1, prueba, type = "response")
+pred2 = predict(modelo2, prueba, type = "response")
+
+roc1 = roc(prueba$EN, pred1)
+roc2 = roc(prueba$EN, pred2)
+
+pred1 = sapply(pred1, function(p) ifelse(p >= 0.5, 1, 0))
+prueba$EN = factor(prueba$EN, levels = c(0, 1))
+pred1 = factor(pred1, levels = levels(prueba$EN))
+
+pred2 = sapply(pred2, function(p) ifelse(p >= 0.5, 1, 0))
+pred2 = factor(pred2, levels = levels(prueba$EN))
+
+ggroc(roc1, color = "red")
+ggroc(roc2, color = "blue")
+```
+
+Se observa que las curvas ROC están bastante lejos de la diagonal por lo que el poder predictivo de los modelos es bueno. Además el modelo 2 tiene un mejor poder predictivo que el modelo 1.
+
+```{r}
+#Tablas de confusión
+conf1 = table(pred1, prueba$EN)
+conf2 = table(pred2, prueba$EN)
+
+VP1 = conf1["0", "0"] #verdaderos positivos de modelo 1
+VN1 = conf1["1", "1"] #verdaderos negativos de modelo 1
+FP1 = conf1["0", "1"] #falsos positivos de modelo 1
+FN1 = conf1["1", "0"] #falsos negativos de modelo 1
+
+VP2 = conf2["0", "0"] #verdaderos positivos de modelo 2
+VN2 = conf2["1", "1"] #verdaderos negativos de modelo 2
+FP2 = conf2["0", "1"] #falsos positivos de modelo 2
+FN2 = conf2["1", "0"] #falsos negativos de modelo 2
+
+#Exactitud
+exac1 = (VP1 + VN1) / 50
+exac2 = (VP2 + VN2) / 50
+cat("exactitud modelo 1: ", exac1, "\n")
+cat("exactitud modelo 2: ", exac2, "\n")
+
+#Sensibilidad
+sens1 = VP1 / (VP1 + FN1)
+sens2 = VP2 / (VP2 + FN2)
+cat("sensibilidad  modelo 1: ", sens1, "\n")
+cat("sensibilidad  modelo 2: ", sens2, "\n")
+
+#Especificidad
+espe1 = VN1 / (VN1 + FP1)
+espe2 = VN2 / (VN2 + FP2)
+cat("especificidad modelo 1: ", espe1, "\n")
+cat("especificidad modelo 2: ", espe2, "\n")
+```
+Ambos modelos parecen predecir bastante bien, el primero con un 88% de exactitud y el segundo con un 90%.
+
+Ahora en términos de especificidad, ambos modelos son iguales con un 0.84, sin embargo,en la sensibilidad el modelo 2 es mejor con un 0.96, mientras que el modelo 1 tiene un 0.92. Por lo tanto podemos decir, que el modelo 2 predice de mejor manera las observaciones pertenecientes a la clase positiva, para nuestro caso, las personas sin sobrepeso.
+
+En general ambos modelos son bastantes buenos en la predicción de la clase EN.
